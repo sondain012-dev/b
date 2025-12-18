@@ -3,30 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clean Bubble Shooter</title>
+    <title>Advanced Bubble Shooter</title>
     <style>
-        body {
-            background: #0d1117;
-            color: #c9d1d9;
-            font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            overflow: hidden;
-        }
-        #score { font-size: 24px; margin-bottom: 10px; color: #58a6ff; font-weight: bold; }
-        #game-container {
-            position: relative;
-            border: 4px solid #30363d;
-            border-radius: 12px;
-            background: #161b22;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
+        body { background: #0d1117; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; overflow: hidden; }
+        #score { font-size: 28px; margin-bottom: 10px; color: #58a6ff; font-weight: bold; }
+        #game-container { position: relative; border: 4px solid #30363d; border-radius: 12px; background: #161b22; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         canvas { display: block; cursor: crosshair; }
-        .controls { margin-top: 15px; color: #8b949e; font-size: 14px; }
+        .info { margin-top: 15px; color: #8b949e; text-align: center; line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -35,33 +18,42 @@
     <div id="game-container">
         <canvas id="gameCanvas" width="400" height="600"></canvas>
     </div>
-    <div class="controls">마우스를 움직여 조준하고 클릭해서 발사하세요!</div>
+    <div class="info">
+        3개 이상 같은 색이 모이면 터집니다!<br>
+        시간이 지나면 새로운 줄이 내려옵니다.
+    </div>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const scoreDelta = document.getElementById('score');
+const scoreEl = document.getElementById('score');
 
-const ROWS = 10;
 const COLS = 10;
 const RADIUS = 20;
 const COLORS = ['#ff5f56', '#58a6ff', '#3fb950', '#d299ff', '#f8e3a1'];
 
-let arena = [];
+let arena = []; // 버블 저장 그리드
 let playerBall = null;
 let score = 0;
 let mousePos = { x: 200, y: 0 };
+let gameActive = true;
+let lineTimer = 0;
+const LINE_INTERVAL = 15000; // 15초마다 한 줄씩 추가
 
-// 초기화
 function init() {
     arena = [];
-    for (let r = 0; r < 5; r++) {
-        arena[r] = [];
-        for (let c = 0; c < COLS; c++) {
-            arena[r][c] = COLORS[Math.floor(Math.random() * COLORS.length)];
-        }
-    }
+    for (let r = 0; r < 4; r++) { addLine(); }
     spawnPlayerBall();
+}
+
+// 새로운 줄 추가 로직
+function addLine() {
+    const newLine = [];
+    for (let c = 0; c < COLS; c++) {
+        newLine[c] = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+    arena.unshift(newLine); // 맨 위에 새 줄 삽입
+    if (arena.length > 15) endGame(); // 바닥에 닿으면 종료
 }
 
 function spawnPlayerBall() {
@@ -69,22 +61,20 @@ function spawnPlayerBall() {
         x: canvas.width / 2,
         y: canvas.height - 40,
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        vx: 0,
-        vy: 0,
-        active: false
+        vx: 0, vy: 0, active: false
     };
 }
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. 가이드 점선 그리기 (대포 대신)
+    // 1. 가이드 라인
     if (!playerBall.active) {
         ctx.beginPath();
-        ctx.setLineDash([5, 10]);
+        ctx.setLineDash([5, 8]);
         ctx.moveTo(playerBall.x, playerBall.y);
         ctx.lineTo(mousePos.x, mousePos.y);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.stroke();
         ctx.setLineDash([]);
     }
@@ -93,13 +83,23 @@ function draw() {
     for (let r = 0; r < arena.length; r++) {
         for (let c = 0; c < COLS; c++) {
             if (arena[r][c]) {
-                drawCircle(c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS), r * RADIUS * 1.8 + RADIUS, RADIUS, arena[r][c]);
+                const x = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const y = r * RADIUS * 1.7 + RADIUS;
+                drawCircle(x, y, RADIUS, arena[r][c]);
             }
         }
     }
 
-    // 3. 발사할 공 그리기
+    // 3. 플레이어 공
     drawCircle(playerBall.x, playerBall.y, RADIUS, playerBall.color);
+
+    if (!gameActive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0,0,400,600);
+        ctx.fillStyle = '#fff';
+        ctx.font = '30px Arial';
+        ctx.fillText("GAME OVER", 110, 300);
+    }
 }
 
 function drawCircle(x, y, r, color) {
@@ -107,27 +107,31 @@ function drawCircle(x, y, r, color) {
     ctx.arc(x, y, r - 2, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
-    // 입체감 효과
-    const grad = ctx.createRadialGradient(x - r/3, y - r/3, 1, x, y, r);
-    grad.addColorStop(0, 'rgba(255,255,255,0.4)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.2)');
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.closePath();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.stroke();
 }
 
-function update() {
+function update(time) {
+    if (!gameActive) return;
+
+    // 시간 흐름에 따른 줄 추가
+    if (!lastTime) var lastTime = time;
+    lineTimer += (time - lastTime) || 0;
+    lastTime = time;
+
+    if (lineTimer > LINE_INTERVAL) {
+        addLine();
+        lineTimer = 0;
+    }
+
     if (playerBall.active) {
         playerBall.x += playerBall.vx;
         playerBall.y += playerBall.vy;
 
-        // 벽 반사
         if (playerBall.x < RADIUS || playerBall.x > canvas.width - RADIUS) playerBall.vx *= -1;
-        
-        // 천장 도달 혹은 충돌 체크 (단순화된 로직)
+
         if (playerBall.y < RADIUS || checkCollision()) {
-            snapBall();
-            spawnPlayerBall();
+            handleHit();
         }
     }
     draw();
@@ -137,30 +141,56 @@ function update() {
 function checkCollision() {
     for (let r = 0; r < arena.length; r++) {
         for (let c = 0; c < COLS; c++) {
-            if (arena[r] && arena[r][c]) {
+            if (arena[r][c]) {
                 const bx = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
-                const by = r * RADIUS * 1.8 + RADIUS;
-                const dist = Math.hypot(playerBall.x - bx, playerBall.y - by);
-                if (dist < RADIUS * 1.8) return true;
+                const by = r * RADIUS * 1.7 + RADIUS;
+                if (Math.hypot(playerBall.x - bx, playerBall.y - by) < RADIUS * 1.7) return true;
             }
         }
     }
     return false;
 }
 
-function snapBall() {
-    const r = Math.max(0, Math.round((playerBall.y - RADIUS) / (RADIUS * 1.8)));
+function handleHit() {
+    const r = Math.max(0, Math.round((playerBall.y - RADIUS) / (RADIUS * 1.7)));
     const c = Math.max(0, Math.min(COLS - 1, Math.round((playerBall.x - RADIUS - (r % 2 * RADIUS)) / (RADIUS * 2))));
     
     if (!arena[r]) arena[r] = [];
     arena[r][c] = playerBall.color;
-    
-    // 같은 색 터뜨리기 로직은 생략 가능하나 필요시 추가
-    score += 10;
-    scoreDelta.innerText = `SCORE: ${score}`;
+
+    // 터뜨리기 로직 실행
+    const matches = findMatches(r, c, playerBall.color);
+    if (matches.length >= 3) {
+        matches.forEach(m => arena[m.r][m.c] = null);
+        score += matches.length * 10;
+        scoreEl.innerText = `SCORE: ${score}`;
+    }
+
+    if (r >= 14) endGame();
+    spawnPlayerBall();
 }
 
-// 이벤트 리스너
+// 3개 이상 찾기 (재귀 알고리즘)
+function findMatches(r, c, color, visited = new Set()) {
+    const key = `${r},${c}`;
+    if (visited.has(key) || !arena[r] || arena[r][c] !== color) return [];
+    
+    visited.add(key);
+    let found = [{r, c}];
+
+    // 인접 6방향 체크 (육각형 그리드 기준)
+    const neighbors = r % 2 === 0 
+        ? [[-1, 0], [-1, -1], [0, -1], [0, 1], [1, -1], [1, 0]]
+        : [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]];
+
+    for (let [dr, dc] of neighbors) {
+        found = found.concat(findMatches(r + dr, c + dc, color, visited));
+    }
+    return found;
+}
+
+function endGame() { gameActive = false; }
+
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
@@ -168,15 +198,859 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('click', () => {
-    if (playerBall.active) return;
+    if (playerBall.active || !gameActive) return;
     const angle = Math.atan2(mousePos.y - playerBall.y, mousePos.x - playerBall.x);
-    playerBall.vx = Math.cos(angle) * 8;
-    playerBall.vy = Math.sin(angle) * 8;
+    playerBall.vx = Math.cos(angle) * 12;
+    playerBall.vy = Math.sin(angle) * 12;
     playerBall.active = true;
 });
 
 init();
-update();
+requestAnimationFrame(update);
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Bubble Shooter</title>
+    <style>
+        body { background: #0d1117; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; overflow: hidden; }
+        #score { font-size: 28px; margin-bottom: 10px; color: #58a6ff; font-weight: bold; }
+        #game-container { position: relative; border: 4px solid #30363d; border-radius: 12px; background: #161b22; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas { display: block; cursor: crosshair; }
+        .info { margin-top: 15px; color: #8b949e; text-align: center; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <div id="score">SCORE: 0</div>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+    </div>
+    <div class="info">
+        3개 이상 같은 색이 모이면 터집니다!<br>
+        시간이 지나면 새로운 줄이 내려옵니다.
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+const COLS = 10;
+const RADIUS = 20;
+const COLORS = ['#ff5f56', '#58a6ff', '#3fb950', '#d299ff', '#f8e3a1'];
+
+let arena = []; // 버블 저장 그리드
+let playerBall = null;
+let score = 0;
+let mousePos = { x: 200, y: 0 };
+let gameActive = true;
+let lineTimer = 0;
+const LINE_INTERVAL = 15000; // 15초마다 한 줄씩 추가
+
+function init() {
+    arena = [];
+    for (let r = 0; r < 4; r++) { addLine(); }
+    spawnPlayerBall();
+}
+
+// 새로운 줄 추가 로직
+function addLine() {
+    const newLine = [];
+    for (let c = 0; c < COLS; c++) {
+        newLine[c] = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+    arena.unshift(newLine); // 맨 위에 새 줄 삽입
+    if (arena.length > 15) endGame(); // 바닥에 닿으면 종료
+}
+
+function spawnPlayerBall() {
+    playerBall = {
+        x: canvas.width / 2,
+        y: canvas.height - 40,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        vx: 0, vy: 0, active: false
+    };
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. 가이드 라인
+    if (!playerBall.active) {
+        ctx.beginPath();
+        ctx.setLineDash([5, 8]);
+        ctx.moveTo(playerBall.x, playerBall.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // 2. 아레나 버블 그리기
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const x = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const y = r * RADIUS * 1.7 + RADIUS;
+                drawCircle(x, y, RADIUS, arena[r][c]);
+            }
+        }
+    }
+
+    // 3. 플레이어 공
+    drawCircle(playerBall.x, playerBall.y, RADIUS, playerBall.color);
+
+    if (!gameActive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0,0,400,600);
+        ctx.fillStyle = '#fff';
+        ctx.font = '30px Arial';
+        ctx.fillText("GAME OVER", 110, 300);
+    }
+}
+
+function drawCircle(x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r - 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.stroke();
+}
+
+function update(time) {
+    if (!gameActive) return;
+
+    // 시간 흐름에 따른 줄 추가
+    if (!lastTime) var lastTime = time;
+    lineTimer += (time - lastTime) || 0;
+    lastTime = time;
+
+    if (lineTimer > LINE_INTERVAL) {
+        addLine();
+        lineTimer = 0;
+    }
+
+    if (playerBall.active) {
+        playerBall.x += playerBall.vx;
+        playerBall.y += playerBall.vy;
+
+        if (playerBall.x < RADIUS || playerBall.x > canvas.width - RADIUS) playerBall.vx *= -1;
+
+        if (playerBall.y < RADIUS || checkCollision()) {
+            handleHit();
+        }
+    }
+    draw();
+    requestAnimationFrame(update);
+}
+
+function checkCollision() {
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const bx = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const by = r * RADIUS * 1.7 + RADIUS;
+                if (Math.hypot(playerBall.x - bx, playerBall.y - by) < RADIUS * 1.7) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function handleHit() {
+    const r = Math.max(0, Math.round((playerBall.y - RADIUS) / (RADIUS * 1.7)));
+    const c = Math.max(0, Math.min(COLS - 1, Math.round((playerBall.x - RADIUS - (r % 2 * RADIUS)) / (RADIUS * 2))));
+    
+    if (!arena[r]) arena[r] = [];
+    arena[r][c] = playerBall.color;
+
+    // 터뜨리기 로직 실행
+    const matches = findMatches(r, c, playerBall.color);
+    if (matches.length >= 3) {
+        matches.forEach(m => arena[m.r][m.c] = null);
+        score += matches.length * 10;
+        scoreEl.innerText = `SCORE: ${score}`;
+    }
+
+    if (r >= 14) endGame();
+    spawnPlayerBall();
+}
+
+// 3개 이상 찾기 (재귀 알고리즘)
+function findMatches(r, c, color, visited = new Set()) {
+    const key = `${r},${c}`;
+    if (visited.has(key) || !arena[r] || arena[r][c] !== color) return [];
+    
+    visited.add(key);
+    let found = [{r, c}];
+
+    // 인접 6방향 체크 (육각형 그리드 기준)
+    const neighbors = r % 2 === 0 
+        ? [[-1, 0], [-1, -1], [0, -1], [0, 1], [1, -1], [1, 0]]
+        : [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]];
+
+    for (let [dr, dc] of neighbors) {
+        found = found.concat(findMatches(r + dr, c + dc, color, visited));
+    }
+    return found;
+}
+
+function endGame() { gameActive = false; }
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('click', () => {
+    if (playerBall.active || !gameActive) return;
+    const angle = Math.atan2(mousePos.y - playerBall.y, mousePos.x - playerBall.x);
+    playerBall.vx = Math.cos(angle) * 12;
+    playerBall.vy = Math.sin(angle) * 12;
+    playerBall.active = true;
+});
+
+init();
+requestAnimationFrame(update);
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Bubble Shooter</title>
+    <style>
+        body { background: #0d1117; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; overflow: hidden; }
+        #score { font-size: 28px; margin-bottom: 10px; color: #58a6ff; font-weight: bold; }
+        #game-container { position: relative; border: 4px solid #30363d; border-radius: 12px; background: #161b22; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas { display: block; cursor: crosshair; }
+        .info { margin-top: 15px; color: #8b949e; text-align: center; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <div id="score">SCORE: 0</div>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+    </div>
+    <div class="info">
+        3개 이상 같은 색이 모이면 터집니다!<br>
+        시간이 지나면 새로운 줄이 내려옵니다.
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+const COLS = 10;
+const RADIUS = 20;
+const COLORS = ['#ff5f56', '#58a6ff', '#3fb950', '#d299ff', '#f8e3a1'];
+
+let arena = []; // 버블 저장 그리드
+let playerBall = null;
+let score = 0;
+let mousePos = { x: 200, y: 0 };
+let gameActive = true;
+let lineTimer = 0;
+const LINE_INTERVAL = 15000; // 15초마다 한 줄씩 추가
+
+function init() {
+    arena = [];
+    for (let r = 0; r < 4; r++) { addLine(); }
+    spawnPlayerBall();
+}
+
+// 새로운 줄 추가 로직
+function addLine() {
+    const newLine = [];
+    for (let c = 0; c < COLS; c++) {
+        newLine[c] = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+    arena.unshift(newLine); // 맨 위에 새 줄 삽입
+    if (arena.length > 15) endGame(); // 바닥에 닿으면 종료
+}
+
+function spawnPlayerBall() {
+    playerBall = {
+        x: canvas.width / 2,
+        y: canvas.height - 40,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        vx: 0, vy: 0, active: false
+    };
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. 가이드 라인
+    if (!playerBall.active) {
+        ctx.beginPath();
+        ctx.setLineDash([5, 8]);
+        ctx.moveTo(playerBall.x, playerBall.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // 2. 아레나 버블 그리기
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const x = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const y = r * RADIUS * 1.7 + RADIUS;
+                drawCircle(x, y, RADIUS, arena[r][c]);
+            }
+        }
+    }
+
+    // 3. 플레이어 공
+    drawCircle(playerBall.x, playerBall.y, RADIUS, playerBall.color);
+
+    if (!gameActive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0,0,400,600);
+        ctx.fillStyle = '#fff';
+        ctx.font = '30px Arial';
+        ctx.fillText("GAME OVER", 110, 300);
+    }
+}
+
+function drawCircle(x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r - 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.stroke();
+}
+
+function update(time) {
+    if (!gameActive) return;
+
+    // 시간 흐름에 따른 줄 추가
+    if (!lastTime) var lastTime = time;
+    lineTimer += (time - lastTime) || 0;
+    lastTime = time;
+
+    if (lineTimer > LINE_INTERVAL) {
+        addLine();
+        lineTimer = 0;
+    }
+
+    if (playerBall.active) {
+        playerBall.x += playerBall.vx;
+        playerBall.y += playerBall.vy;
+
+        if (playerBall.x < RADIUS || playerBall.x > canvas.width - RADIUS) playerBall.vx *= -1;
+
+        if (playerBall.y < RADIUS || checkCollision()) {
+            handleHit();
+        }
+    }
+    draw();
+    requestAnimationFrame(update);
+}
+
+function checkCollision() {
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const bx = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const by = r * RADIUS * 1.7 + RADIUS;
+                if (Math.hypot(playerBall.x - bx, playerBall.y - by) < RADIUS * 1.7) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function handleHit() {
+    const r = Math.max(0, Math.round((playerBall.y - RADIUS) / (RADIUS * 1.7)));
+    const c = Math.max(0, Math.min(COLS - 1, Math.round((playerBall.x - RADIUS - (r % 2 * RADIUS)) / (RADIUS * 2))));
+    
+    if (!arena[r]) arena[r] = [];
+    arena[r][c] = playerBall.color;
+
+    // 터뜨리기 로직 실행
+    const matches = findMatches(r, c, playerBall.color);
+    if (matches.length >= 3) {
+        matches.forEach(m => arena[m.r][m.c] = null);
+        score += matches.length * 10;
+        scoreEl.innerText = `SCORE: ${score}`;
+    }
+
+    if (r >= 14) endGame();
+    spawnPlayerBall();
+}
+
+// 3개 이상 찾기 (재귀 알고리즘)
+function findMatches(r, c, color, visited = new Set()) {
+    const key = `${r},${c}`;
+    if (visited.has(key) || !arena[r] || arena[r][c] !== color) return [];
+    
+    visited.add(key);
+    let found = [{r, c}];
+
+    // 인접 6방향 체크 (육각형 그리드 기준)
+    const neighbors = r % 2 === 0 
+        ? [[-1, 0], [-1, -1], [0, -1], [0, 1], [1, -1], [1, 0]]
+        : [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]];
+
+    for (let [dr, dc] of neighbors) {
+        found = found.concat(findMatches(r + dr, c + dc, color, visited));
+    }
+    return found;
+}
+
+function endGame() { gameActive = false; }
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('click', () => {
+    if (playerBall.active || !gameActive) return;
+    const angle = Math.atan2(mousePos.y - playerBall.y, mousePos.x - playerBall.x);
+    playerBall.vx = Math.cos(angle) * 12;
+    playerBall.vy = Math.sin(angle) * 12;
+    playerBall.active = true;
+});
+
+init();
+requestAnimationFrame(update);
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Bubble Shooter</title>
+    <style>
+        body { background: #0d1117; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; overflow: hidden; }
+        #score { font-size: 28px; margin-bottom: 10px; color: #58a6ff; font-weight: bold; }
+        #game-container { position: relative; border: 4px solid #30363d; border-radius: 12px; background: #161b22; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas { display: block; cursor: crosshair; }
+        .info { margin-top: 15px; color: #8b949e; text-align: center; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <div id="score">SCORE: 0</div>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+    </div>
+    <div class="info">
+        3개 이상 같은 색이 모이면 터집니다!<br>
+        시간이 지나면 새로운 줄이 내려옵니다.
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+const COLS = 10;
+const RADIUS = 20;
+const COLORS = ['#ff5f56', '#58a6ff', '#3fb950', '#d299ff', '#f8e3a1'];
+
+let arena = []; // 버블 저장 그리드
+let playerBall = null;
+let score = 0;
+let mousePos = { x: 200, y: 0 };
+let gameActive = true;
+let lineTimer = 0;
+const LINE_INTERVAL = 15000; // 15초마다 한 줄씩 추가
+
+function init() {
+    arena = [];
+    for (let r = 0; r < 4; r++) { addLine(); }
+    spawnPlayerBall();
+}
+
+// 새로운 줄 추가 로직
+function addLine() {
+    const newLine = [];
+    for (let c = 0; c < COLS; c++) {
+        newLine[c] = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+    arena.unshift(newLine); // 맨 위에 새 줄 삽입
+    if (arena.length > 15) endGame(); // 바닥에 닿으면 종료
+}
+
+function spawnPlayerBall() {
+    playerBall = {
+        x: canvas.width / 2,
+        y: canvas.height - 40,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        vx: 0, vy: 0, active: false
+    };
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. 가이드 라인
+    if (!playerBall.active) {
+        ctx.beginPath();
+        ctx.setLineDash([5, 8]);
+        ctx.moveTo(playerBall.x, playerBall.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // 2. 아레나 버블 그리기
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const x = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const y = r * RADIUS * 1.7 + RADIUS;
+                drawCircle(x, y, RADIUS, arena[r][c]);
+            }
+        }
+    }
+
+    // 3. 플레이어 공
+    drawCircle(playerBall.x, playerBall.y, RADIUS, playerBall.color);
+
+    if (!gameActive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0,0,400,600);
+        ctx.fillStyle = '#fff';
+        ctx.font = '30px Arial';
+        ctx.fillText("GAME OVER", 110, 300);
+    }
+}
+
+function drawCircle(x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r - 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.stroke();
+}
+
+function update(time) {
+    if (!gameActive) return;
+
+    // 시간 흐름에 따른 줄 추가
+    if (!lastTime) var lastTime = time;
+    lineTimer += (time - lastTime) || 0;
+    lastTime = time;
+
+    if (lineTimer > LINE_INTERVAL) {
+        addLine();
+        lineTimer = 0;
+    }
+
+    if (playerBall.active) {
+        playerBall.x += playerBall.vx;
+        playerBall.y += playerBall.vy;
+
+        if (playerBall.x < RADIUS || playerBall.x > canvas.width - RADIUS) playerBall.vx *= -1;
+
+        if (playerBall.y < RADIUS || checkCollision()) {
+            handleHit();
+        }
+    }
+    draw();
+    requestAnimationFrame(update);
+}
+
+function checkCollision() {
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const bx = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const by = r * RADIUS * 1.7 + RADIUS;
+                if (Math.hypot(playerBall.x - bx, playerBall.y - by) < RADIUS * 1.7) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function handleHit() {
+    const r = Math.max(0, Math.round((playerBall.y - RADIUS) / (RADIUS * 1.7)));
+    const c = Math.max(0, Math.min(COLS - 1, Math.round((playerBall.x - RADIUS - (r % 2 * RADIUS)) / (RADIUS * 2))));
+    
+    if (!arena[r]) arena[r] = [];
+    arena[r][c] = playerBall.color;
+
+    // 터뜨리기 로직 실행
+    const matches = findMatches(r, c, playerBall.color);
+    if (matches.length >= 3) {
+        matches.forEach(m => arena[m.r][m.c] = null);
+        score += matches.length * 10;
+        scoreEl.innerText = `SCORE: ${score}`;
+    }
+
+    if (r >= 14) endGame();
+    spawnPlayerBall();
+}
+
+// 3개 이상 찾기 (재귀 알고리즘)
+function findMatches(r, c, color, visited = new Set()) {
+    const key = `${r},${c}`;
+    if (visited.has(key) || !arena[r] || arena[r][c] !== color) return [];
+    
+    visited.add(key);
+    let found = [{r, c}];
+
+    // 인접 6방향 체크 (육각형 그리드 기준)
+    const neighbors = r % 2 === 0 
+        ? [[-1, 0], [-1, -1], [0, -1], [0, 1], [1, -1], [1, 0]]
+        : [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]];
+
+    for (let [dr, dc] of neighbors) {
+        found = found.concat(findMatches(r + dr, c + dc, color, visited));
+    }
+    return found;
+}
+
+function endGame() { gameActive = false; }
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('click', () => {
+    if (playerBall.active || !gameActive) return;
+    const angle = Math.atan2(mousePos.y - playerBall.y, mousePos.x - playerBall.x);
+    playerBall.vx = Math.cos(angle) * 12;
+    playerBall.vy = Math.sin(angle) * 12;
+    playerBall.active = true;
+});
+
+init();
+requestAnimationFrame(update);
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Bubble Shooter</title>
+    <style>
+        body { background: #0d1117; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; overflow: hidden; }
+        #score { font-size: 28px; margin-bottom: 10px; color: #58a6ff; font-weight: bold; }
+        #game-container { position: relative; border: 4px solid #30363d; border-radius: 12px; background: #161b22; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        canvas { display: block; cursor: crosshair; }
+        .info { margin-top: 15px; color: #8b949e; text-align: center; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <div id="score">SCORE: 0</div>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+    </div>
+    <div class="info">
+        3개 이상 같은 색이 모이면 터집니다!<br>
+        시간이 지나면 새로운 줄이 내려옵니다.
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+const COLS = 10;
+const RADIUS = 20;
+const COLORS = ['#ff5f56', '#58a6ff', '#3fb950', '#d299ff', '#f8e3a1'];
+
+let arena = []; // 버블 저장 그리드
+let playerBall = null;
+let score = 0;
+let mousePos = { x: 200, y: 0 };
+let gameActive = true;
+let lineTimer = 0;
+const LINE_INTERVAL = 15000; // 15초마다 한 줄씩 추가
+
+function init() {
+    arena = [];
+    for (let r = 0; r < 4; r++) { addLine(); }
+    spawnPlayerBall();
+}
+
+// 새로운 줄 추가 로직
+function addLine() {
+    const newLine = [];
+    for (let c = 0; c < COLS; c++) {
+        newLine[c] = COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+    arena.unshift(newLine); // 맨 위에 새 줄 삽입
+    if (arena.length > 15) endGame(); // 바닥에 닿으면 종료
+}
+
+function spawnPlayerBall() {
+    playerBall = {
+        x: canvas.width / 2,
+        y: canvas.height - 40,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        vx: 0, vy: 0, active: false
+    };
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. 가이드 라인
+    if (!playerBall.active) {
+        ctx.beginPath();
+        ctx.setLineDash([5, 8]);
+        ctx.moveTo(playerBall.x, playerBall.y);
+        ctx.lineTo(mousePos.x, mousePos.y);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // 2. 아레나 버블 그리기
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const x = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const y = r * RADIUS * 1.7 + RADIUS;
+                drawCircle(x, y, RADIUS, arena[r][c]);
+            }
+        }
+    }
+
+    // 3. 플레이어 공
+    drawCircle(playerBall.x, playerBall.y, RADIUS, playerBall.color);
+
+    if (!gameActive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0,0,400,600);
+        ctx.fillStyle = '#fff';
+        ctx.font = '30px Arial';
+        ctx.fillText("GAME OVER", 110, 300);
+    }
+}
+
+function drawCircle(x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r - 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.stroke();
+}
+
+function update(time) {
+    if (!gameActive) return;
+
+    // 시간 흐름에 따른 줄 추가
+    if (!lastTime) var lastTime = time;
+    lineTimer += (time - lastTime) || 0;
+    lastTime = time;
+
+    if (lineTimer > LINE_INTERVAL) {
+        addLine();
+        lineTimer = 0;
+    }
+
+    if (playerBall.active) {
+        playerBall.x += playerBall.vx;
+        playerBall.y += playerBall.vy;
+
+        if (playerBall.x < RADIUS || playerBall.x > canvas.width - RADIUS) playerBall.vx *= -1;
+
+        if (playerBall.y < RADIUS || checkCollision()) {
+            handleHit();
+        }
+    }
+    draw();
+    requestAnimationFrame(update);
+}
+
+function checkCollision() {
+    for (let r = 0; r < arena.length; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (arena[r][c]) {
+                const bx = c * RADIUS * 2 + RADIUS + (r % 2 * RADIUS);
+                const by = r * RADIUS * 1.7 + RADIUS;
+                if (Math.hypot(playerBall.x - bx, playerBall.y - by) < RADIUS * 1.7) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function handleHit() {
+    const r = Math.max(0, Math.round((playerBall.y - RADIUS) / (RADIUS * 1.7)));
+    const c = Math.max(0, Math.min(COLS - 1, Math.round((playerBall.x - RADIUS - (r % 2 * RADIUS)) / (RADIUS * 2))));
+    
+    if (!arena[r]) arena[r] = [];
+    arena[r][c] = playerBall.color;
+
+    // 터뜨리기 로직 실행
+    const matches = findMatches(r, c, playerBall.color);
+    if (matches.length >= 3) {
+        matches.forEach(m => arena[m.r][m.c] = null);
+        score += matches.length * 10;
+        scoreEl.innerText = `SCORE: ${score}`;
+    }
+
+    if (r >= 14) endGame();
+    spawnPlayerBall();
+}
+
+// 3개 이상 찾기 (재귀 알고리즘)
+function findMatches(r, c, color, visited = new Set()) {
+    const key = `${r},${c}`;
+    if (visited.has(key) || !arena[r] || arena[r][c] !== color) return [];
+    
+    visited.add(key);
+    let found = [{r, c}];
+
+    // 인접 6방향 체크 (육각형 그리드 기준)
+    const neighbors = r % 2 === 0 
+        ? [[-1, 0], [-1, -1], [0, -1], [0, 1], [1, -1], [1, 0]]
+        : [[-1, 0], [-1, 1], [0, -1], [0, 1], [1, 0], [1, 1]];
+
+    for (let [dr, dc] of neighbors) {
+        found = found.concat(findMatches(r + dr, c + dc, color, visited));
+    }
+    return found;
+}
+
+function endGame() { gameActive = false; }
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('click', () => {
+    if (playerBall.active || !gameActive) return;
+    const angle = Math.atan2(mousePos.y - playerBall.y, mousePos.x - playerBall.x);
+    playerBall.vx = Math.cos(angle) * 12;
+    playerBall.vy = Math.sin(angle) * 12;
+    playerBall.active = true;
+});
+
+init();
+requestAnimationFrame(update);
 </script>
 </body>
 </html>
